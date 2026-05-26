@@ -1,0 +1,47 @@
+{
+  "name": "excel-normalizer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@ag-grid-community/client-side-row-model": "^32.3.9",
+    "@ag-grid-community/core": "^32.3.9",
+    "@ag-grid-community/react": "^32.3.9",
+    "@ag-grid-community/styles": "^32.3.9",
+    "@ant-design/icons": "^6.2.3",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-opener": "^2",
+    "antd": "^6.4.3",
+    "date-fns": "^4.3.0",
+    "exceljs": "^4.4.0",
+    "papaparse": "^5.5.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.13"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4",
+    "vitest": "^4.1.7"
+  }
+}

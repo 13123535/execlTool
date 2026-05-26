@@ -1,0 +1,299 @@
+/* ─── Excel 规范化工具 ── 全局样式 ───────────────────────── */
+
+:root {
+  --color-bg: #f0f2f5;
+  --color-surface: #ffffff;
+  --color-primary: #1677ff;
+  --color-primary-hover: #4096ff;
+  --color-primary-active: #0958d9;
+  --color-text: #1f1f1f;
+  --color-text-secondary: #666;
+  --color-border: #d9d9d9;
+  --color-error: #ff4d4f;
+  --color-error-bg: #fff2f0;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --radius: 6px;
+  --header-height: 52px;
+
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ─── 布局 ──────────────────────────────────────────── */
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ─── 顶部工具栏 ─────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--header-height);
+  padding: 0 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 180px;
+}
+
+.app-title {
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text);
+}
+
+.file-name {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  background: #f5f5f5;
+  border-radius: 4px;
+}
+
+.toolbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+  justify-content: flex-end;
+}
+
+/* ─── 按钮 ──────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.btn:active:not(:disabled) {
+  border-color: var(--color-primary-active);
+  color: var(--color-primary-active);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: #fff;
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--color-primary-active);
+  border-color: var(--color-primary-active);
+}
+
+/* ─── 错误提示条 ─────────────────────────────────────── */
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--color-error-bg);
+  border-bottom: 1px solid var(--color-error);
+  font-size: 13px;
+  color: var(--color-error);
+  flex-shrink: 0;
+}
+
+.error-close {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--color-error);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.error-close:hover {
+  background: rgba(255, 77, 79, 0.1);
+}
+
+/* ─── 主内容区 ──────────────────────────────────────── */
+
+.main-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ─── 空状态 ────────────────────────────────────────── */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: var(--color-text-secondary);
+  gap: 12px;
+}
+
+.empty-state-icon {
+  font-size: 64px;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.empty-state h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.empty-state p {
+  font-size: 14px;
+  max-width: 400px;
+}
+
+.empty-state .hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+/* ─── 加载遮罩 ──────────────────────────────────────── */
+
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.75);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  gap: 16px;
+}
+
+.loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-overlay p {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+/* ─── AG Grid 主题覆盖 ──────────────────────────────── */
+
+.ag-theme-quartz {
+  --ag-header-height: 34px;
+  --ag-header-foreground-color: var(--color-text);
+  --ag-header-background-color: #fafafa;
+  --ag-odd-row-background-color: #fafafa;
+  --ag-row-hover-color: #e6f4ff;
+  --ag-selected-row-background-color: #e6f4ff;
+  --ag-border-color: var(--color-border);
+  --ag-font-size: 13px;
+  --ag-cell-horizontal-padding: 10px;
+}
+
+.ag-theme-quartz .ag-header-cell {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.ag-theme-quartz .ag-cell {
+  line-height: 1.5;
+}
+
+/* ─── 响应式小调整 ──────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .toolbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 8px 12px;
+    gap: 6px;
+  }
+
+  .toolbar-left,
+  .toolbar-center,
+  .toolbar-right {
+    min-width: unset;
+  }
+
+  .btn {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+}
