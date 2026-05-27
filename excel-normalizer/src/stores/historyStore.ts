@@ -1,27 +1,30 @@
 /**
- * 历史记录管理 (Zustand)
+ * 历史记录管理 (Zustand) — 方案C 重写：diff 链
  *
- * 命令模式 Undo/Redo。
+ * 核心变动：
+ *   - 不再保存 Operation 实例引用（解除内存泄漏风险）
+ *   - 改为保存 PatchDiff（正向 + 反向），undo/redo 时直接调 tableStore.updateCells()
+ *   - 序列化友好（全部 JSON 可序列化），不再依赖 Operation 的私有快照
  *
- * 设计原则：
- *   - 不保存全量表格快照（大数据下不可行）
- *   - 只保存 SequenceizedOperation（序列化后的操作参数，< 1KB）
- *   - undo = 从头将 undoStack 中除最后一步外的所有操作重新执行
- *   - redo = 在当前位置基础上执行 redoStack 顶部的操作
- *
- * 为什么 Worker 有自己的 undo/redo 栈，Store 还要再存一份？
- *   - Worker 栈用于快速执行（操作数据在 Worker 上下文）
- *   - Store 栈用于 UI 历史面板显示和时间旅行
- *   - 两者通过 message 同步：Worker 执行完 → 回传 → Store 记录
+ * HistoryItem：
+ *   - diffs: PatchDiff       操作产生的 diff（正向：old→new）
+ *   - reverseDiffs: PatchDiff 反向 diff（new→old，undo 用）
+ *   - label / detail / timestamp
  */
 
 import { create } from "zustand";
-import type { SerializedOperation } from "../engine";
+import type { PatchDiff } from "../engine";
 
-/** 操作项目（展示在历史面板中） */
+// ═══════════════════════════════════════════════════════════════
+// 类型定义
+// ═══════════════════════════════════════════════════════════════
+
+/** 历史记录项（纯 JSON，无实例引用） */
 export interface HistoryItem {
-  /** 序列化操作 */
-  op: SerializedOperation;
+  /** 正向 diff（old→new，redo 用） */
+  diffs: PatchDiff;
+  /** 反向 diff（new→old，undo 用） */
+  reverseDiffs: PatchDiff;
   /** 界面显示标签 */
   label: string;
   /** 详细描述 */
@@ -30,20 +33,19 @@ export interface HistoryItem {
   timestamp: number;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// State & Actions
+// ═══════════════════════════════════════════════════════════════
+
 interface HistoryState {
   /** 撤销栈（最近操作在末尾） */
   undoStack: HistoryItem[];
   /** 重做栈（最近撤销的在末尾） */
   redoStack: HistoryItem[];
-
-  /** 是否可以撤销 */
+  /** 是否可撤销 */
   canUndo: boolean;
-  /** 是否可以重做 */
+  /** 是否可重做 */
   canRedo: boolean;
-
-  // ═══════════════════════════════════════════════════════════
-  // Actions
-  // ═══════════════════════════════════════════════════════════
 
   /** 记录一个操作 */
   push: (item: HistoryItem) => void;
@@ -54,6 +56,10 @@ interface HistoryState {
   /** 清空所有历史 */
   clear: () => void;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Store
+// ═══════════════════════════════════════════════════════════════
 
 export const useHistoryStore = create<HistoryState>((set, get) => ({
   undoStack: [],

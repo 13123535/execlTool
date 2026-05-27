@@ -11,8 +11,8 @@
  *   - columnId: 目标列 ID（"*" 表示所有列，默认 "*"）
  *
  * undo 语义：
- *   记录每个修改过的单元格的原始值，撤销时恢复。
- *   使用 _originalValues 快照确保精确回滚。
+ *   execute 时保存 _beforeTable 原始表引用。
+ *   undo 时直接返回原始表，零拷贝。
  */
 
 import { BaseOperation } from "./Operation";
@@ -26,16 +26,14 @@ interface TrimParams {
   columnId?: string;
 }
 
-/** 记录被修改的单元格：rowIndex → colIndex → 原始值 */
-type ValueSnapshot = Map<number, Map<number, string | number | null>>;
-
 export class TrimOp extends BaseOperation {
   readonly type = "trim";
   readonly label: string;
   readonly detail: string;
 
   private columnId: string;
-  private _originalValues: ValueSnapshot | null = null;
+  /** 执行前的原始表引用，undo 时直接返回，避免二次 clone */
+  private _beforeTable: NormalizedTable | null = null;
 
   constructor(params: Record<string, unknown>) {
     super();
@@ -51,16 +49,17 @@ export class TrimOp extends BaseOperation {
    * 执行 Trim
    *
    * 算法：
-   *   1. 深拷贝原表
-   *   2. 确定目标列范围（"*" = 所有列，否则单个列）
-   *   3. 遍历目标列的所有行
-   *   4. 字符串值 → trim()，记录快照
+   *   1. 保存原始表引用（用于 undo）
+   *   2. 深拷贝原表
+   *   3. 确定目标列范围（"*" = 所有列，否则单个列）
+   *   4. 遍历目标列的所有行，字符串值 → trim()
    *   5. 返回新表
    */
   execute(table: NormalizedTable): NormalizedTable {
-    const result = this.cloneTable(table);
-    const snapshot: ValueSnapshot = new Map();
+    // 保存原始表引用，undo 时直接返回，零拷贝
+    this._beforeTable = table;
 
+    const result = this.cloneTable(table);
     const targetCols = this.resolveColumnIndices(result);
 
     for (const colIdx of targetCols) {
@@ -69,47 +68,25 @@ export class TrimOp extends BaseOperation {
         if (cell === undefined) continue;
 
         if (typeof cell.value === "string") {
-          const trimmed = cell.value.trim();
-          if (trimmed !== cell.value) {
-            // 记录原始值
-            if (!snapshot.has(ri)) snapshot.set(ri, new Map());
-            snapshot.get(ri)!.set(colIdx, cell.value);
-
-            cell.value = trimmed;
-          }
+          cell.value = cell.value.trim();
         }
       }
     }
 
-    this._originalValues = snapshot;
     return result;
   }
 
   /**
    * 撤销 Trim
    *
-   * 从快照恢复原始值。
+   * 直接返回 execute 时保存的原始表引用（零拷贝）。
    */
-  undo(table: NormalizedTable): NormalizedTable {
-    if (!this._originalValues) {
-      // 无记录 = 没有修改过 → 直接返回
-      return this.cloneTable(table);
+  undo(_table: NormalizedTable): NormalizedTable {
+    if (this._beforeTable) {
+      return this._beforeTable;
     }
-
-    const result = this.cloneTable(table);
-
-    for (const [ri, colMap] of this._originalValues) {
-      for (const [ci, original] of colMap) {
-        if (ri < result.rows.length) {
-          const cell = result.rows[ri].cells[ci];
-          if (cell) {
-            cell.value = original;
-          }
-        }
-      }
-    }
-
-    return result;
+    // 兜底：如果没有保存原始表（极端情况），返回传入的表
+    return _table;
   }
 
   serialize(): SerializedOperation {

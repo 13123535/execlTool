@@ -56,11 +56,18 @@ export interface Column {
 /** 单个单元格数据 */
 export interface Cell {
   /** 单元格值（null = 空） */
-  value: string | number | null;
+  value: CellValue;
   /** 是否为展开生成的虚拟行（灰色标记） */
   isVirtual: boolean;
   /** 来源引用，如 "A3"（展开操作后标记来源） */
   sourceRef: string | null;
+  /**
+   * 行跨度（CollapseOp 使用）
+   *  - >1: 合并锚点，表示向下合并 N 行
+   *  - 0: 被合并覆盖的单元格（不渲染）
+   *  - undefined/1: 普通单元格
+   */
+  rowSpan?: number;
 }
 
 /** 一行数据 */
@@ -246,4 +253,60 @@ export interface PreviewResult {
   afterRowCount: number;
   /** 变化描述，如 "15 → 187" */
   rowCountChange: string;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 虚拟化 / 流式 / Diff（方案C 新增）
+// ═══════════════════════════════════════════════════════════════
+
+/** Cell.value 的类型别名（避免多处重复定义） */
+export type CellValue = string | number | boolean | null;
+
+/** 单个单元格差异 */
+export interface CellDiff {
+  /** 列索引（0-based） */
+  colIdx: number;
+  /** 行索引（0-based） */
+  rowIdx: number;
+  /** 操作前值 */
+  oldValue: CellValue;
+  /** 操作后值 */
+  newValue: CellValue;
+}
+
+/** 操作产生的 diff 数组 */
+export type PatchDiff = CellDiff[];
+
+/** 操作执行结果统计 */
+export interface OperationStats {
+  /** 操作前行数 */
+  beforeRowCount: number;
+  /** 操作后行数 */
+  afterRowCount: number;
+  /** 操作前列数 */
+  beforeColCount: number;
+  /** 操作后列数 */
+  afterColCount: number;
+}
+
+/** Worker 返回的操作执行结果 */
+export interface ExecuteDiffResult {
+  /** 单元格级 diff */
+  diffs: PatchDiff;
+  /** 反向 diff（用于 undo） */
+  reverseDiffs: PatchDiff;
+  /** 行列变化统计 */
+  stats: OperationStats;
+  /** 操作后的列定义（当列结构变化时，如新增/删除列） */
+  columns: import("./types").Column[];
+}
+
+/** 流式导入进度 */
+export interface ImportProgress {
+  /** 阶段 */
+  phase: "parsing" | "done" | "error";
+  /** 已加载行数 */
+  loadedRows: number;
+  /** 预估总行数（未知时为 null） */
+  estimatedTotal: number | null;
 }

@@ -24,6 +24,13 @@ export type {
   ImportConfig,
   ExportConfig,
   PreviewResult,
+  // 方案C 新增 Type
+  CellValue,
+  CellDiff,
+  PatchDiff,
+  OperationStats,
+  ExecuteDiffResult,
+  ImportProgress,
 } from "./types";
 
 export type {
@@ -46,6 +53,8 @@ export type {
   ProgressMessage,
   ErrorMessage,
 } from "./protocol";
+
+export { compareTables } from "./diff";
 
 export { BaseOperation } from "./operations/Operation";
 export {

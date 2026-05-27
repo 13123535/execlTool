@@ -74,8 +74,15 @@ function buildRows(table: NormalizedTable, maxRows: number): GridRow[] {
       _key: String(row.id),
       _isVirtual: row.isVirtual,
     };
-    row.cells.forEach((cell, colIdx) => {
-      record[String(colIdx)] = cell.value;
+    // 按 column 下标映射（而非 cell 下标），保证新增列（id 非数字）也能对齐
+    table.columns.forEach((col, colIdx) => {
+      const cell = row.cells[colIdx];
+      const value = cell?.value;
+      record[col.id] = value;
+      // 传递 rowSpan 元数据给 onCell 回调
+      if (cell?.rowSpan !== undefined) {
+        record[`_rowSpan_${col.id}`] = cell.rowSpan;
+      }
     });
     return record;
   });
@@ -122,6 +129,19 @@ const DataGrid: React.FC<DataGridProps> = ({
         render: (value: unknown, record: GridRow) => (
           <CellRenderer value={value} isVirtual={record._isVirtual} />
         ),
+        onCell: (record: GridRow) => {
+          const rSpan = record[`_rowSpan_${colKey}`] as number | undefined;
+          if (rSpan === 0) return { rowSpan: 0 };
+          if (rSpan && rSpan > 1) {
+            return {
+              rowSpan: rSpan,
+              style: {
+                verticalAlign: "middle" as const,
+              },
+            };
+          }
+          return {};
+        },
       };
     });
 

@@ -11,10 +11,15 @@
  */
 
 import { create } from "zustand";
-import type {
-  WorkbookData,
-  SheetData,
-} from "../types";
+import type { NormalizedTable } from "../engine";
+
+/** 工作簿（多 Sheet，预留） */
+export interface WorkbookData {
+  sheets: NormalizedTable[];
+}
+
+/** 单个 Sheet 数据（别名，预留） */
+export type SheetData = NormalizedTable;
 
 interface WorkbookState {
   // 数据

@@ -11,12 +11,17 @@
  * 参数：
  *   - columnId: 要填充的列（必填）
  *   - keepOriginal: 是否保留原始行（true = 生成虚拟行，默认 false）
+ *
+ * undo 语义：
+ *   execute 时保存 _beforeTable 原始表引用。
+ *   undo 时直接返回原始表，零拷贝。
  */
 
 import { BaseOperation } from "./Operation";
 import type {
   NormalizedTable,
   SerializedOperation,
+  CellValue,
 } from "../types";
 
 /** FillDown 操作参数 */
@@ -32,6 +37,8 @@ export class FillDownOp extends BaseOperation {
 
   private columnId: string;
   private keepOriginal: boolean;
+  /** 执行前的原始表引用，undo 时直接返回，避免二次 clone */
+  private _beforeTable: NormalizedTable | null = null;
 
   constructor(params: Record<string, unknown>) {
     super();
@@ -46,12 +53,16 @@ export class FillDownOp extends BaseOperation {
    * 执行 Fill Down
    *
    * 算法：
-   *   1. 深拷贝原表
-   *   2. 找到目标列的索引
-   *   3. 遍历每一行：遇到非空值就记下来，遇到空值就用上次记的值填充
-   *   4. 返回新表
+   *   1. 保存原始表引用（用于 undo）
+   *   2. 深拷贝原表
+   *   3. 找到目标列的索引
+   *   4. 遍历每一行：遇到非空值就记下来，遇到空值就用上次记的值填充
+   *   5. 返回新表
    */
   execute(table: NormalizedTable): NormalizedTable {
+    // 保存原始表引用，undo 时直接返回，零拷贝
+    this._beforeTable = table;
+
     const result = this.cloneTable(table);
     const colIdx = parseInt(this.columnId, 10);
 
@@ -59,7 +70,7 @@ export class FillDownOp extends BaseOperation {
       throw new Error(`列索引 "${this.columnId}" 无效（共 ${result.columns.length} 列）`);
     }
 
-    let lastValue: string | number | null = null;
+    let lastValue: CellValue = null;
 
     for (const row of result.rows) {
       const cell = row.cells[colIdx];
@@ -81,23 +92,13 @@ export class FillDownOp extends BaseOperation {
   /**
    * 撤销 Fill Down
    *
-   * 将 isVirtual=true 的单元格设回 null。
-   * 注意：这无法完全回到原始状态（无法区分"本来就是空"和"合并导致的空"），
-   * 所以只有标记了 isVirtual 的单元格才被恢复。
+   * 直接返回 execute 时保存的原始表引用（零拷贝）。
    */
-  undo(table: NormalizedTable): NormalizedTable {
-    const result = this.cloneTable(table);
-    const colIdx = parseInt(this.columnId, 10);
-
-    for (const row of result.rows) {
-      const cell = row.cells[colIdx];
-      if (cell && cell.isVirtual) {
-        cell.value = null;
-        cell.isVirtual = false;
-      }
+  undo(_table: NormalizedTable): NormalizedTable {
+    if (this._beforeTable) {
+      return this._beforeTable;
     }
-
-    return result;
+    return _table;
   }
 
   serialize(): SerializedOperation {

@@ -1,15 +1,15 @@
 /**
- * ExplodeOp — 按分隔符展开列
+ * ExplodeOp — 按分隔符展开为新列
  *
- * 将多值列（如 "苹果,香蕉,橙子"）按分隔符拆分为多行。
+ * 将多值列（如 "苹果,香蕉,橙子"）按分隔符拆分，
+ * 每个拆分出的值自动在原列之后开辟一个新列。
  *
  * 示例：
- *   A1=苹果,香蕉   B1=水果
- *   → A1=苹果  B1=水果  (isVirtual=false)
- *     A2=香蕉  B1=水果  (isVirtual=true, 来源 A1)
+ *   col0 = "a,b,c", col1 = "x"
+ *   → col0 = "a", col0_1 = "b", col0_2 = "c", col1 = "x"（同一行，新增2列）
  *
  * 参数：
- *   - columnId: 要展开的列
+ *   - columnId: 要展开的列索引
  *   - separator: 分隔符（默认逗号 ","）
  *   - trim: 是否去除展开后值的首尾空格（默认 true）
  */
@@ -18,7 +18,7 @@ import { BaseOperation } from "./Operation";
 import type {
   NormalizedTable,
   SerializedOperation,
-  Row,
+  Column,
 } from "../types";
 
 /** Explode 操作参数 */
@@ -36,6 +36,8 @@ export class ExplodeOp extends BaseOperation {
   private columnId: string;
   private separator: string;
   private shouldTrim: boolean;
+  /** 执行前的原始表引用，undo 时直接返回 */
+  private _beforeTable: NormalizedTable | null = null;
 
   constructor(params: Record<string, unknown>) {
     super();
@@ -43,85 +45,104 @@ export class ExplodeOp extends BaseOperation {
     this.columnId = p.columnId;
     this.separator = p.separator ?? ",";
     this.shouldTrim = p.trim ?? true;
-    this.label = `按列${this.columnId}展开`;
-    this.detail = `分隔符 "${this.separator}" 展开（列${this.columnId}）`;
+    this.label = `分隔展开列${this.columnId}`;
+    this.detail = `按分隔符"${this.separator}"将列${this.columnId}展开为新列`;
   }
 
   /**
-   * 执行展开
+   * 执行分隔展开（开辟新列模式）
    *
    * 算法：
-   *   1. 拷贝 columns 和 rows
-   *   2. 遍历每一行：
-   *      a. 取目标列的单元格值
-   *      b. 按分隔符 split
-   *      c. 第一个值：替换原行单元格，isVirtual=false
-   *      d. 其余值：插入新行，isVirtual=true，sourceRef=原行号
-   *   3. 返回新表
+   *   1. 保存原始表引用（用于 undo）
+   *   2. 扫描全表目标列，确定最大拆分份数 maxParts
+   *   3. 在原列之后插入 (maxParts-1) 个新列
+   *   4. 遍历每行：拆分原值 → 第一个值保留在原列，其余填入新列
+   *   5. 不足 maxParts 的行，新列填空字符串
+   *   6. 返回新表
    */
   execute(table: NormalizedTable): NormalizedTable {
-    const colIdx = parseInt(this.columnId, 10);
+    this._beforeTable = table;
 
+    const colIdx = parseInt(this.columnId, 10);
     if (isNaN(colIdx) || colIdx < 0 || colIdx >= table.columns.length) {
-      throw new Error(`列索引 "${this.columnId}" 无效（共 ${table.columns.length} 列）`);
+      throw new Error(
+        `列索引 "${this.columnId}" 无效（共 ${table.columns.length} 列）`,
+      );
     }
 
-    const newRows: Row[] = [];
-    let rowId = 0;
+    const originalColName = table.columns[colIdx].name;
 
+    // ── 第1步：扫描全表，找出最大拆分份数 ──
+    let maxParts = 1;
     for (const row of table.rows) {
       const cell = row.cells[colIdx];
-      if (!cell || cell.value === null || cell.value === "") {
-        // 空值：直接保留原行
-        newRows.push({
-          ...this.cloneRow(row),
-          id: rowId++,
-        });
-        continue;
-      }
-
-      const rawValue = String(cell.value);
-      const parts = rawValue.split(this.separator);
-
-      if (parts.length <= 1) {
-        // 没有分隔符：保留原行
-        newRows.push({
-          ...this.cloneRow(row),
-          id: rowId++,
-        });
-        continue;
-      }
-
-      // 有多个值：展开
-      const sourceRef = `R${row.id}`;
-
-      for (let i = 0; i < parts.length; i++) {
-        let part = parts[i];
-        if (this.shouldTrim) {
-          part = part.trim();
-        }
-
-        // 解析为数字（如果是数字）
-        const parsedValue = this.parseValue(part);
-
-        const newRow = this.cloneRow(row);
-        newRow.id = rowId++;
-        newRow.cells[colIdx] = {
-          value: parsedValue,
-          isVirtual: i > 0, // 第一个保持原始行标记，其余是虚拟行
-          sourceRef: i > 0 ? sourceRef : null,
-        };
-
-        if (i > 0) {
-          newRow.isVirtual = true;
-        }
-
-        newRows.push(newRow);
+      if (cell && cell.value !== null && cell.value !== undefined) {
+        const rawValue = String(cell.value);
+        if (rawValue.length === 0) continue;
+        const parts = rawValue.split(this.separator);
+        if (parts.length > maxParts) maxParts = parts.length;
       }
     }
 
+    if (maxParts <= 1) {
+      // 无拆分点，返回原表（不可变拷贝）
+      return this.cloneTable(table);
+    }
+
+    // ── 第2步：在原列之后插入新列 ──
+    const newCols: Column[] = table.columns.map((c) => ({ ...c }));
+    for (let i = 1; i < maxParts; i++) {
+      newCols.splice(colIdx + i, 0, {
+        id: `${originalColName}_${i}`,
+        name: `${originalColName}_${i}`,
+        dtype: table.columns[colIdx].dtype,
+        isKey: false,
+      });
+    }
+
+    // ── 第3步：拆分每行，填入新列 ──
+    const newRows = table.rows.map((row) => {
+      const cell = row.cells[colIdx];
+      const rawValue = cell?.value;
+      const strVal =
+        rawValue !== null && rawValue !== undefined ? String(rawValue) : "";
+      const parts =
+        strVal.length > 0 ? strVal.split(this.separator) : [];
+
+      const newCells = [...row.cells];
+
+      // 原列取第一个值
+      if (parts.length > 0) {
+        const firstVal = this.shouldTrim ? parts[0].trim() : parts[0];
+        newCells[colIdx] = {
+          value: this.parseValue(firstVal),
+          isVirtual: false,
+          sourceRef: null,
+        };
+      } else {
+        newCells[colIdx] = {
+          value: "",
+          isVirtual: false,
+          sourceRef: null,
+        };
+      }
+
+      // 后续列依次填入，不足的填空
+      for (let i = 1; i < maxParts; i++) {
+        const part = i < parts.length ? parts[i] : "";
+        const val = this.shouldTrim ? part.trim() : part;
+        newCells.splice(colIdx + i, 0, {
+          value: this.parseValue(val),
+          isVirtual: false,
+          sourceRef: null,
+        });
+      }
+
+      return { ...row, cells: newCells, isVirtual: false };
+    });
+
     return {
-      columns: structuredClone(table.columns),
+      columns: newCols,
       rows: newRows,
       originalFileName: table.originalFileName,
       sheetName: table.sheetName,
@@ -129,73 +150,15 @@ export class ExplodeOp extends BaseOperation {
   }
 
   /**
-   * 撤销展开
+   * 撤销分隔展开
    *
-   * 将同一 sourceRef 的虚拟行合并回原行。
-   * 算法：
-   *   1. 按 sourceRef 分组（null = 原始行，其他 = 虚拟行）
-   *   2. 对于每组，合并对应列的值（用原分隔符连接）
-   *   3. 返回合并后的行
+   * 直接返回操作前的原始表（零拷贝还原）。
    */
-  undo(table: NormalizedTable): NormalizedTable {
-    const colIdx = parseInt(this.columnId, 10);
-
-    // sourceRef → group of rows
-    const groups = new Map<string | null, Row[]>();
-
-    for (const row of table.rows) {
-      const cell = row.cells[colIdx];
-      const key = cell?.sourceRef ?? null;
-
-      if (!groups.has(key)) {
-        groups.set(key, []);
-      }
-      groups.get(key)!.push(row);
+  undo(_table: NormalizedTable): NormalizedTable {
+    if (!this._beforeTable) {
+      throw new Error("无法撤销：没有保存操作前的表格");
     }
-
-    const mergedRows: Row[] = [];
-    let rowId = 0;
-
-    for (const [sourceRef, rows] of groups) {
-      if (sourceRef === null) {
-        // 没有来源的原始/独立行：直接保留
-        for (const row of rows) {
-          mergedRows.push({
-            ...row,
-            id: rowId++,
-            isVirtual: false,
-          });
-        }
-      } else {
-        // 虚拟行组：将值合并回一行
-        // 找第一行作为模板
-        const template = rows[0];
-        const parts: string[] = [];
-
-        for (const row of rows) {
-          const cell = row.cells[colIdx];
-          if (cell && cell.value !== null) {
-            parts.push(String(cell.value));
-          }
-        }
-
-        template.cells[colIdx] = {
-          value: parts.join(this.separator),
-          isVirtual: false,
-          sourceRef: null,
-        };
-        template.id = rowId++;
-        template.isVirtual = false;
-        mergedRows.push(template);
-      }
-    }
-
-    return {
-      columns: structuredClone(table.columns),
-      rows: mergedRows,
-      originalFileName: table.originalFileName,
-      sheetName: table.sheetName,
-    };
+    return this._beforeTable;
   }
 
   serialize(): SerializedOperation {
@@ -213,27 +176,12 @@ export class ExplodeOp extends BaseOperation {
   // 工具方法
   // ═══════════════════════════════════════════════════════════
 
-  /** 深拷贝一行 */
-  private cloneRow(row: Row): Row {
-    return {
-      id: row.id,
-      isVirtual: row.isVirtual,
-      cells: row.cells.map((cell) => ({
-        value: cell.value,
-        isVirtual: cell.isVirtual,
-        sourceRef: cell.sourceRef,
-      })),
-    };
-  }
-
   /** 将字符串解析为数字（如果是数字格式的话） */
   private parseValue(value: string): string | number {
     const trimmed = value.trim();
-    // 整数
     if (/^-?\d+$/.test(trimmed)) {
       return parseInt(trimmed, 10);
     }
-    // 浮点数
     if (/^-?\d+\.\d+$/.test(trimmed)) {
       return parseFloat(trimmed);
     }

@@ -1,56 +1,26 @@
 /**
- * excel-normalizer 核心类型定义
+ * excel-normalizer Worker 通信协议 & 配置类型
  *
  * 数据流：
  *   File → (Import) → NormalizedTable → (Operations) → NormalizedTable → (Export) → File
  *
- * 注意：主链路已迁移至 engine/types.ts 中的 NormalizedTable。
- * 本文件仅保留旧 Worker 协议和导入/导出配置类型。
+ * 主数据模型见 engine/types.ts。
  *
  * 单元格坐标约定：
  *   - 列号 colIndex: 0-based，对应 Excel 列 A → 0, B → 1, ...
- *   - 行号 rowIndex: 0-based，对应导入后的数据行序号
+ *   - 行号 rowIndex: 0-based，对应数据行序号
  */
 
-import type { NormalizedTable } from "../engine";
+// ═══════════════════════════════════════════════════════════════
+// 核心类型重导出（从 engine 层提升到顶层）
+// ═══════════════════════════════════════════════════════════════
 
-// ─── 单元格 / 行 / 工作表 / 工作簿（旧格式，已废弃） ────────────────
+/** 单元格值类型（引擎层定义） */
+export type { CellValue } from "../engine";
 
-/** 单个单元格的值类型 */
-export type CellValue = string | number | boolean | null;
-
-/** 单个单元格数据 */
-export interface CellData {
-  value: CellValue;
-  /** 原始显示值（导入时保留，用于格式参考） */
-  raw?: string;
-}
-
-/** 一行数据，列索引 → 单元格 */
-export type RowData = Record<number, CellData>;
-
-/** 工作表元信息 */
-export interface SheetMeta {
-  name: string;
-  rowCount: number;
-  colCount: number;
-}
-
-/** 一个工作表的数据（旧格式） */
-export interface SheetData {
-  meta: SheetMeta;
-  headers: Record<number, string>;
-  headerLines?: Record<number, string[]>;
-  rows: RowData[];
-}
-
-/** 整个工作簿数据（旧格式，已废弃） */
-export interface WorkbookData {
-  sheets: SheetData[];
-  activeSheetIndex: number;
-}
-
-// ─── 文件与导出 ───────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 文件与导出配置
+// ═══════════════════════════════════════════════════════════════
 
 /** 支持的导入格式 */
 export type ImportFormat = "xlsx" | "csv";
@@ -82,7 +52,101 @@ export interface ExportOptions {
   includeHeader?: boolean;
 }
 
-// ─── 行列范围 ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// Worker 通信协议
+// ═══════════════════════════════════════════════════════════════
+
+/** Worker 消息类型枚举 */
+export enum WorkerMessageType {
+  // 导入
+  Import = "import",
+  ImportProgress = "importProgress",  // Worker → 主线程：进度更新
+  ImportComplete = "importComplete",
+  ImportError = "importError",
+
+  // 操作执行
+  ExecuteOperation = "executeOperation",
+  ExecuteDiff = "executeDiff",        // Worker → 主线程：返回 diff 结果
+  OperationError = "operationError",
+}
+
+/** Worker 请求 */
+export interface WorkerRequest {
+  id: string;
+  type: WorkerMessageType;
+  payload: unknown;
+}
+
+/** Worker 响应 */
+export interface WorkerResponse {
+  id: string;
+  type: WorkerMessageType;
+  payload: unknown;
+  error?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 各消息 Payload 类型
+// ═══════════════════════════════════════════════════════════════
+
+/** 导入请求 payload */
+export interface ImportPayload {
+  /** 文件 buffer（Web）或文件路径（Tauri） */
+  data: ArrayBuffer | string;
+  /** 原始文件名 */
+  fileName?: string;
+  /** 导入选项 */
+  options: ImportOptions;
+}
+
+/** 导入进度 payload（分片通知） */
+export interface ImportProgressPayload {
+  /** 当前阶段 */
+  phase: "parsing" | "done" | "error";
+  /** 已加载行数 */
+  loadedRows: number;
+  /** 预估总行数（未知时为 null） */
+  estimatedTotal: number | null;
+  /** 本次分片数据（parsing 阶段有效） */
+  chunk?: {
+    columns: { id: string; name: string }[];
+    rows: Record<string, unknown>[][];
+  };
+  /** 错误信息（error 阶段有效） */
+  error?: string;
+}
+
+/** 导入完成 payload */
+export interface ImportCompletePayload {
+  /** 文件名 */
+  fileName: string;
+  /** 总行数 */
+  totalRowCount: number;
+  /** 是否被截断（超大文件） */
+  isTruncated: boolean;
+}
+
+/** 操作执行请求 payload */
+export interface ExecuteOperationPayload {
+  /** 当前表格数据 */
+  table: import("../engine").NormalizedTable;
+  /** 序列化后的操作 */
+  serializedOp: { type: string; params: Record<string, unknown> };
+}
+
+/** 操作执行 diff 结果 payload */
+export interface ExecuteDiffPayload {
+  /** 单元格级差异 */
+  diffs: import("../engine").PatchDiff;
+  /** 行列统计 */
+  stats: import("../engine").OperationStats;
+  /** 反向 diff（用于 undo） */
+  reverseDiffs: import("../engine").PatchDiff;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 行列范围（UI 交互用）
+// ═══════════════════════════════════════════════════════════════
 
 /** 列范围（0-based，含头含尾） */
 export interface ColumnRange {
@@ -94,80 +158,4 @@ export interface ColumnRange {
 export interface RowRange {
   start: number;
   end: number;
-}
-
-// ─── 操作(Operation) 类型 ─────────────────────────────────────────
-
-/** 可执行的操作类型枚举 */
-export enum OperationType {
-  Expand = "expand",
-  Collapse = "collapse",
-  Column = "column",
-  Row = "row",
-  Clean = "clean",
-  Transform = "transform",
-  Cluster = "cluster",
-}
-
-/** 操作参数基类 */
-export interface BaseOperationParams {
-  columnRange?: ColumnRange;
-  rowRange?: RowRange;
-}
-
-/** 展开操作参数 */
-export interface ExpandParams extends BaseOperationParams {
-  columnIndices: number[];
-}
-
-/** 操作定义 */
-export interface Operation<P = BaseOperationParams> {
-  type: OperationType;
-  label?: string;
-  params: P;
-}
-
-// ─── Worker 通信协议 ───────────────────────────────────────────────
-
-export enum WorkerMessageType {
-  Import = "import",
-  ImportComplete = "importComplete",
-  ImportError = "importError",
-  ExecuteOperation = "executeOperation",
-  OperationComplete = "operationComplete",
-  OperationError = "operationError",
-}
-
-export interface WorkerRequest {
-  id: string;
-  type: WorkerMessageType;
-  payload: unknown;
-}
-
-export interface WorkerResponse {
-  id: string;
-  type: WorkerMessageType;
-  payload: unknown;
-  error?: string;
-}
-
-export interface ImportPayload {
-  filePath: string;
-  fileName?: string;
-  options: ImportOptions;
-}
-
-export interface ImportCompletePayload {
-  workbook: NormalizedTable;
-  fileName: string;
-}
-
-export interface ExecuteOperationPayload {
-  workbook: NormalizedTable;
-  operation: Operation;
-}
-
-export interface OperationCompletePayload {
-  workbook: NormalizedTable;
-  operation: Operation;
 }
